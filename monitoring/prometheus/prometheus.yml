@@ -1,0 +1,129 @@
+# =============================================================================
+#  Prometheus Configuration – TalentBridge
+#  Scrapes Spring Boot /actuator/prometheus endpoints for all microservices.
+#  Services are reachable via the shared talentbridge-network.
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    monitor: "talentbridge-prometheus"
+    environment: "local-dev"
+
+# ── Alertmanager (optional – uncomment when you add it) ─────────────────────
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ["alertmanager:9093"]
+
+# ── Rule files ───────────────────────────────────────────────────────────────
+# rule_files:
+#   - "rules/*.yml"
+
+# ── Scrape Configurations ────────────────────────────────────────────────────
+scrape_configs:
+
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: "prometheus"
+
+  # Grafana metrics
+  - job_name: "grafana"
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels:
+          service: "grafana"
+
+  # Zipkin metrics (if exposed)
+  - job_name: "zipkin"
+    metrics_path: "/prometheus"
+    static_configs:
+      - targets: ["zipkin:9411"]
+        labels:
+          service: "zipkin"
+
+  # ── TalentBridge Spring Boot Services ──────────────────────────────────────
+  # All Spring Boot services expose /actuator/prometheus when
+  # management.endpoints.web.exposure.include contains "prometheus"
+  # (configured in config-repo/application.yml)
+
+  - job_name: "talentbridge-eureka"
+    metrics_path: "/actuator/prometheus"
+    scrape_interval: 20s
+    static_configs:
+      - targets: ["talentbridge-eureka:8761"]
+        labels:
+          service: "eureka-server"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-config"
+    metrics_path: "/actuator/prometheus"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["talentbridge-config:8888"]
+        labels:
+          service: "config-server"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-gateway"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["talentbridge-gateway:8080"]
+        labels:
+          service: "api-gateway"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-auth"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["talentbridge-auth:8081"]
+        labels:
+          service: "auth-service"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-job"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["talentbridge-job:8082"]
+        labels:
+          service: "job-service"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-application"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["talentbridge-application:8083"]
+        labels:
+          service: "application-service"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-file"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets: ["talentbridge-file:8084"]
+        labels:
+          service: "file-service"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-notification"
+    metrics_path: "/actuator/prometheus"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["talentbridge-notification:8085"]
+        labels:
+          service: "notification-service"
+          team: "talentbridge"
+
+  - job_name: "talentbridge-admin"
+    metrics_path: "/actuator/prometheus"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["talentbridge-admin:8086"]
+        labels:
+          service: "admin-service"
+          team: "talentbridge"

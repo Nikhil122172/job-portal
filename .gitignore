@@ -1,0 +1,28 @@
+# Environment files (NEVER commit these)
+.env
+backend/.env
+frontend/.env
+*.env.local
+
+# Build artifacts
+backend/*/target/
+frontend/dist/
+frontend/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+monitoring/sonarqube/logs/
+monitoring/sonarqube/data/
+monitoring/sonarqube/extensions/
+
+# Docker volumes (runtime data)
+monitoring/loki/data/

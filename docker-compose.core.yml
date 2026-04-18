@@ -1,0 +1,617 @@
+# =============================================================================
+#  CareerBridge – Core Services Only
+#  Run with: ./build_core.sh
+#  Do NOT include monitoring stack here.
+# =============================================================================
+#
+#  Services:
+#    Infrastructure : MySQL, Redis, Zookeeper, Kafka
+#    Spring Boot    : eureka-server, config-server, api-gateway,
+#                     auth-service, job-service, application-service,
+#                     file-service, notification-service, admin-service
+#    Frontend       : React/Nginx
+#
+#  Profiles:
+#    (default) → core services (no notification, no admin)
+#    full      → all services including notification + admin
+#
+#  Tracing (Zipkin) is enabled when monitoring stack is running.
+#  Set TRACING_ENABLED=true in .env and run build_monitoring.sh first.
+# =============================================================================
+
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-spring-svc: &spring-svc
+  restart: on-failure:3
+  networks:
+    - careerbridge-net
+  logging: *logging
+  mem_limit: 512m
+  mem_reservation: 200m
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  mysql:
+    image: mysql:8.0
+    container_name: careerbridge-mysql
+    restart: unless-stopped
+    networks:
+      - careerbridge-net
+    logging: *logging
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: auth_db
+      MYSQL_USER: ${MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/docker/mysql:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "3307:3306"
+    mem_limit: 768m
+    mem_reservation: 300m
+    cpus: "0.80"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u $${MYSQL_USERNAME} --password=$${MYSQL_PASSWORD} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: careerbridge-redis
+    restart: unless-stopped
+    networks:
+      - careerbridge-net
+    logging: *logging
+    command: redis-server --maxmemory 96mb --maxmemory-policy allkeys-lru --save ""
+    ports:
+      - "6379:6379"
+    mem_limit: 192m
+    mem_reservation: 64m
+    cpus: "0.25"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: careerbridge-zookeeper
+    restart: unless-stopped
+    networks:
+      - careerbridge-net
+    logging: *logging
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_HEAP_OPTS: "-Xmx192m -Xms96m"
+    mem_limit: 384m
+    mem_reservation: 128m
+    cpus: "0.40"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: careerbridge-kafka
+    restart: unless-stopped
+    networks:
+      - careerbridge-net
+    logging: *logging
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_HEAP_OPTS: "-Xmx384m -Xms192m"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+      KAFKA_LOG4J_LOGGERS: state.change.logger=WARN,kafka.controller=WARN
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 536870912
+      KAFKA_LOG_SEGMENT_BYTES: 104857600
+      KAFKA_NUM_NETWORK_THREADS: 2
+      KAFKA_NUM_IO_THREADS: 4
+    mem_limit: 768m
+    mem_reservation: 256m
+    cpus: "0.80"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── Spring Boot Microservices ────────────────────────────────────────────────
+
+  eureka-server:
+    build:
+      context: ./backend
+      dockerfile: eureka-server/Dockerfile
+      cache_from:
+        - careerbridge/eureka-server:latest
+    container_name: careerbridge-eureka
+    image: careerbridge/eureka-server:latest
+    <<: *spring-svc
+    environment:
+      EUREKA_HOSTNAME: eureka-server
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 384m
+    mem_reservation: 128m
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+
+  config-server:
+    build:
+      context: ./backend
+      dockerfile: config-server/Dockerfile
+      cache_from:
+        - careerbridge/config-server:latest
+    container_name: careerbridge-config
+    image: careerbridge/config-server:latest
+    <<: *spring-svc
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 384m
+    mem_reservation: 128m
+    volumes:
+      - ./backend/config-repo:/config-repo:ro
+    ports:
+      - "8888:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8888/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+
+  api-gateway:
+    build:
+      context: ./backend
+      dockerfile: api-gateway/Dockerfile
+      cache_from:
+        - careerbridge/api-gateway:latest
+    container_name: careerbridge-gateway
+    image: careerbridge/api-gateway:latest
+    <<: *spring-svc
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: 60
+      CONFIG_SERVER_URL: http://config-server:8888/
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 512m
+    mem_reservation: 192m
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 90s
+
+  auth-service:
+    build:
+      context: ./backend
+      dockerfile: auth-service/Dockerfile
+      cache_from:
+        - careerbridge/auth-service:latest
+    container_name: careerbridge-auth
+    image: careerbridge/auth-service:latest
+    <<: *spring-svc
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: 60
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: 30
+      CONFIG_SERVER_URL: http://config-server:8888/
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/auth_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 512m
+    mem_reservation: 192m
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  job-service:
+    build:
+      context: ./backend
+      dockerfile: job-service/Dockerfile
+      cache_from:
+        - careerbridge/job-service:latest
+    container_name: careerbridge-job
+    image: careerbridge/job-service:latest
+    <<: *spring-svc
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: 60
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: 30
+      CONFIG_SERVER_URL: http://config-server:8888/
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/job_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      JOB_DB_URL: jdbc:mysql://mysql:3306/job_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 512m
+    mem_reservation: 192m
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  application-service:
+    build:
+      context: ./backend
+      dockerfile: application-service/Dockerfile
+      cache_from:
+        - careerbridge/application-service:latest
+    container_name: careerbridge-application
+    image: careerbridge/application-service:latest
+    <<: *spring-svc
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: 60
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: 30
+      CONFIG_SERVER_URL: http://config-server:8888/
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/application_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      APPLICATION_DB_URL: jdbc:mysql://mysql:3306/application_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 512m
+    mem_reservation: 192m
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  file-service:
+    build:
+      context: ./backend
+      dockerfile: file-service/Dockerfile
+      cache_from:
+        - careerbridge/file-service:latest
+    container_name: careerbridge-file
+    image: careerbridge/file-service:latest
+    <<: *spring-svc
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: 60
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: 30
+      CONFIG_SERVER_URL: http://config-server:8888/
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 384m
+    mem_reservation: 128m
+    ports:
+      - "8084:8084"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  notification-service:
+    build:
+      context: ./backend
+      dockerfile: notification-service/Dockerfile
+      cache_from:
+        - careerbridge/notification-service:latest
+    container_name: careerbridge-notification
+    image: careerbridge/notification-service:latest
+    <<: *spring-svc
+    profiles: ["full"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: 60
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: 30
+      CONFIG_SERVER_URL: http://config-server:8888/
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/notification_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USERNAME}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      NOTIFICATION_DB_URL: jdbc:mysql://mysql:3306/notification_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 512m
+    mem_reservation: 192m
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  admin-service:
+    build:
+      context: ./backend
+      dockerfile: admin-service/Dockerfile
+      cache_from:
+        - careerbridge/admin-service:latest
+    container_name: careerbridge-admin
+    image: careerbridge/admin-service:latest
+    <<: *spring-svc
+    profiles: ["full"]
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+      EUREKA_CLIENT_REGISTRY_FETCH_INTERVAL_SECONDS: 60
+      EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: 30
+      CONFIG_SERVER_URL: http://config-server:8888/
+      JWT_SECRET: ${JWT_SECRET}
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      TRACING_SAMPLING_PROBABILITY: ${TRACING_SAMPLING_PROBABILITY:-0.0}
+      ZIPKIN_ENDPOINT: ${ZIPKIN_ENDPOINT:-http://zipkin:9411/api/v2/spans}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+UseContainerSupport
+        -XX:MaxRAMPercentage=65.0
+        -XX:InitialRAMPercentage=35.0
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+        -Djava.security.egd=file:/dev/./urandom
+    mem_limit: 384m
+    mem_reservation: 128m
+    ports:
+      - "8086:8086"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8086/actuator/health | grep -q UP || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      cache_from:
+        - careerbridge/frontend:latest
+    container_name: careerbridge-frontend
+    image: careerbridge/frontend:latest
+    restart: on-failure:3
+    networks:
+      - careerbridge-net
+    logging: *logging
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    mem_limit: 128m
+    mem_reservation: 48m
+    cpus: "0.20"
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health | grep -q OK || exit 1"]
+      interval: 20s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  mysql_data:
+    name: careerbridge-mysql-data
+  redis_data:
+    name: careerbridge-redis-data
+  kafka_data:
+    name: careerbridge-kafka-data
+  zookeeper_data:
+    name: careerbridge-zookeeper-data
+  zookeeper_logs:
+    name: careerbridge-zookeeper-logs
+
+networks:
+  careerbridge-net:
+    driver: bridge
+    name: careerbridge-network
+    # External: monitoring stack joins this network to scrape metrics
+    # (defined here as primary; monitoring compose references it as external)

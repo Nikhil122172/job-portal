@@ -1,0 +1,15 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: file-service
+
+management:
+  prometheus:
+    metrics:
+      export:
+        openmetrics:
+          enabled: false
+        exemplars:
+          enabled: false

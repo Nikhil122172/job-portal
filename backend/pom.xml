@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TalentBridge – Root Parent POM
+  ══════════════════════════════
+  PURPOSE:
+    Centralises ALL version numbers and shared dependency declarations so that:
+    1. Every service pom.xml needs only 3–4 lines of <parent> + its own deps.
+    2. BuildKit's Maven cache (~/.m2) is seeded ONCE by the root deps stage,
+       then every service layer hits the same cache → ~0 re-downloads.
+    3. Upgrading Spring Boot / Cloud / JWT etc. requires ONE line change here.
+
+  HOW TO USE IN A SERVICE pom.xml:
+    <parent>
+      <groupId>com.jobportal</groupId>
+      <artifactId>talentbridge-parent</artifactId>
+      <version>1.0.0</version>
+      <relativePath>../pom.xml</relativePath>
+    </parent>
+    ... then just list <dependencies> without versions.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Inherit Spring Boot's dependency management so all services stay aligned -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.2.5</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.jobportal</groupId>
+  <artifactId>talentbridge-parent</artifactId>
+  <version>1.0.0</version>
+  <packaging>pom</packaging>
+  <name>TalentBridge Parent POM</name>
+  <description>Shared dependency and version management for all microservices</description>
+
+  <!-- ── All service modules (enables mvn -pl for selective builds) ───────── -->
+  <modules>
+    <module>eureka-server</module>
+    <module>config-server</module>
+    <module>api-gateway</module>
+    <module>auth-service</module>
+    <module>job-service</module>
+    <module>application-service</module>
+    <module>file-service</module>
+    <module>notification-service</module>
+    <module>admin-service</module>
+  </modules>
+
+  <!-- ── Shared version properties ─────────────────────────────────────────── -->
+  <properties>
+    <java.version>17</java.version>
+    <spring-cloud.version>2023.0.3</spring-cloud.version>
+    <mapstruct.version>1.5.5.Final</mapstruct.version>
+    <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+    <jjwt.version>0.11.5</jjwt.version>
+    <cloudinary.version>1.36.0</cloudinary.version>
+    <springdoc.version>2.3.0</springdoc.version>
+    <!-- Build reproducibility -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+  </properties>
+
+  <!-- ── Shared dependency version management ─────────────────────────────── -->
+  <dependencyManagement>
+    <dependencies>
+      <!-- Spring Cloud BOM — pins all cloud starter versions -->
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- JWT (used by auth-service, api-gateway, job-service) -->
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-api</artifactId>
+        <version>${jjwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-impl</artifactId>
+        <version>${jjwt.version}</version>
+        <scope>runtime</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-jackson</artifactId>
+        <version>${jjwt.version}</version>
+        <scope>runtime</scope>
+      </dependency>
+
+      <!-- Cloudinary (used by file-service, application-service) -->
+      <dependency>
+        <groupId>com.cloudinary</groupId>
+        <artifactId>cloudinary-http44</artifactId>
+        <version>${cloudinary.version}</version>
+      </dependency>
+
+      <!-- OpenAPI / Swagger UI -->
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        <version>${springdoc.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+        <version>${springdoc.version}</version>
+      </dependency>
+
+      <!-- MapStruct (used by auth-service, application-service) -->
+      <dependency>
+        <groupId>org.mapstruct</groupId>
+        <artifactId>mapstruct</artifactId>
+        <version>${mapstruct.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok-mapstruct-binding</artifactId>
+        <version>${lombok-mapstruct-binding.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- ── Dependencies shared by EVERY service ─────────────────────────────── -->
+  <dependencies>
+    <!-- Lombok: compile-only, zero runtime footprint -->
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <!-- Spring Boot test slice: always needed -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <!-- ── Shared build plugin configuration ────────────────────────────────── -->
+  <build>
+    <pluginManagement>
+      <plugins>
+        <!-- Spring Boot plugin: enables layered JAR + BuildInfo -->
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <configuration>
+            <!-- Exclude Lombok from the final JAR (compile-only) -->
+            <excludes>
+              <exclude>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+              </exclude>
+            </excludes>
+            <!-- Layered JAR: splits fat JAR into 4 Docker cache-friendly layers
+                 dependencies | spring-boot-loader | snapshot-dependencies | application
+                 On code-only rebuild, only ~50 KB "application" layer changes. -->
+            <layers>
+              <enabled>true</enabled>
+            </layers>
+          </configuration>
+        </plugin>
+
+        <!-- Compiler: enable annotation processing for Lombok + MapStruct -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <configuration>
+            <source>${java.version}</source>
+            <target>${java.version}</target>
+            <annotationProcessorPaths>
+              <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+              </path>
+              <path>
+                <groupId>org.mapstruct</groupId>
+                <artifactId>mapstruct-processor</artifactId>
+                <version>${mapstruct.version}</version>
+              </path>
+              <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok-mapstruct-binding</artifactId>
+                <version>${lombok-mapstruct-binding.version}</version>
+              </path>
+            </annotationProcessorPaths>
+          </configuration>
+        </plugin>
+
+        <!-- Surefire: skip slow integration tests during Docker build -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <excludes>
+              <exclude>**/*IT.java</exclude>
+              <exclude>**/*IntegrationTest.java</exclude>
+            </excludes>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

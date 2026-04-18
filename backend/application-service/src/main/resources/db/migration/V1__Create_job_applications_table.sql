@@ -1,0 +1,25 @@
+-- Create job_applications table for Application Service
+CREATE TABLE IF NOT EXISTS job_applications (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    job_id BIGINT NOT NULL,
+    recruiter_id BIGINT NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'APPLIED',
+    resume_url VARCHAR(500),
+    resume_public_id VARCHAR(255),
+    cover_letter LONGTEXT,
+    applicant_name VARCHAR(255),
+    applicant_email VARCHAR(255),
+    applicant_phone VARCHAR(20),
+    job_title VARCHAR(255),
+    company_name VARCHAR(255),
+    status_note LONGTEXT,
+    applied_at DATETIME,
+    updated_at DATETIME,
+    UNIQUE KEY unique_user_job (user_id, job_id),
+    INDEX idx_user_id (user_id),
+    INDEX idx_job_id (job_id),
+    INDEX idx_recruiter_id (recruiter_id),
+    INDEX idx_status (status),
+    INDEX idx_applied_at (applied_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

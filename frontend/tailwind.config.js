@@ -1,0 +1,88 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        display: ['"Manrope"', '"Inter"', 'sans-serif'],
+        body: ['"Inter"', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
+      },
+      fontSize: {
+        'display-4xl': ['clamp(2.75rem, 5vw, 4.75rem)', { lineHeight: '1.05', letterSpacing: '-0.05em' }],
+        'display-3xl': ['clamp(2.25rem, 4vw, 3.75rem)', { lineHeight: '1.08', letterSpacing: '-0.04em' }],
+        'display-2xl': ['clamp(1.875rem, 3vw, 3rem)', { lineHeight: '1.12', letterSpacing: '-0.03em' }],
+        'display-xl': ['clamp(1.5rem, 2vw, 2.25rem)', { lineHeight: '1.15', letterSpacing: '-0.025em' }],
+        'display-lg': ['clamp(1.25rem, 1.5vw, 1.75rem)', { lineHeight: '1.2', letterSpacing: '-0.02em' }],
+        body: ['1rem', { lineHeight: '1.75', letterSpacing: '0.01em' }],
+        'body-sm': ['0.9375rem', { lineHeight: '1.7', letterSpacing: '0.01em' }],
+        'body-xs': ['0.8125rem', { lineHeight: '1.6', letterSpacing: '0.02em' }],
+        button: ['0.9375rem', { lineHeight: '1', letterSpacing: '-0.01em' }],
+        label: ['0.8125rem', { lineHeight: '1.2', letterSpacing: '0.08em' }],
+      },
+      colors: {
+        brand: {
+          50:  '#f0f9ff',
+          100: '#e0f2fe',
+          200: '#bae6fd',
+          300: '#7dd3fc',
+          400: '#38bdf8',
+          500: '#0ea5e9',
+          600: '#0284c7',
+          700: '#0369a1',
+          800: '#075985',
+          900: '#0c4a6e',
+          950: '#082f49',
+        },
+        accent: {
+          50:  '#fff7ed',
+          100: '#ffedd5',
+          200: '#fed7aa',
+          300: '#fdba74',
+          400: '#fb923c',
+          500: '#f97316',
+          600: '#ea580c',
+          700: '#c2410c',
+          800: '#9a3412',
+          900: '#7c2d12',
+        },
+        surface: {
+          DEFAULT: '#0f172a',
+          50: '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          800: '#1e293b',
+          900: '#0f172a',
+          950: '#020617',
+        }
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-out',
+        'slide-up': 'slideUp 0.4s ease-out',
+        'slide-down': 'slideDown 0.3s ease-out',
+        'scale-in': 'scaleIn 0.2s ease-out',
+        'shimmer': 'shimmer 2s infinite',
+        'pulse-slow': 'pulse 3s ease-in-out infinite',
+      },
+      keyframes: {
+        fadeIn: { from: { opacity: '0' }, to: { opacity: '1' } },
+        slideUp: { from: { opacity: '0', transform: 'translateY(20px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        slideDown: { from: { opacity: '0', transform: 'translateY(-10px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        scaleIn: { from: { opacity: '0', transform: 'scale(0.95)' }, to: { opacity: '1', transform: 'scale(1)' } },
+        shimmer: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
+      },
+      boxShadow: {
+        'glow': '0 0 20px rgba(14, 165, 233, 0.15)',
+        'glow-lg': '0 0 40px rgba(14, 165, 233, 0.2)',
+        'card': '0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06)',
+        'card-hover': '0 4px 16px rgba(0,0,0,0.08), 0 8px 32px rgba(0,0,0,0.08)',
+      },
+      backgroundImage: {
+        'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+        'mesh-gradient': 'radial-gradient(at 40% 20%, hsla(208,100%,74%,0.08) 0px, transparent 50%), radial-gradient(at 80% 0%, hsla(189,100%,56%,0.06) 0px, transparent 50%), radial-gradient(at 0% 50%, hsla(355,100%,93%,0.04) 0px, transparent 50%)',
+      },
+    },
+  },
+  plugins: [],
+}

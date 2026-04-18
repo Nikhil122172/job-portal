@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: auth-service
+  config:
+    import: "optional:configserver:"
+  cloud:
+    config:
+      enabled: false
+  datasource:
+    url: jdbc:h2:mem:auth;DB_CLOSE_DELAY=-1;MODE=MySQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  data:
+    redis:
+      client-type: none
+  cache:
+    type: none
+  kafka:
+    bootstrap-servers: localhost:9092
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+jwt:
+  secret: test-auth-service-secret-key-for-unit-tests-64bytes-paddingaaaaa
+  expiration: 3600000
+  refresh-expiration: 7200000
+
+cloudinary:
+  cloud-name: test
+  api-key: test
+  api-secret: test
+
+app:
+  kafka:
+    topics:
+      user-events: user-events

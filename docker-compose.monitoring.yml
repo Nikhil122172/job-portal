@@ -1,0 +1,288 @@
+# =============================================================================
+#  CareerBridge – Monitoring Stack
+#  Run with: ./build_monitoring.sh
+#  Isolated from core services but can scrape them via shared network.
+#
+#  Services:
+#    prometheus    → metrics scraping (Spring Boot actuator endpoints)
+#    grafana       → dashboards for Prometheus + Loki data sources
+#    loki          → log aggregation from Docker containers
+#    promtail      → log shipping agent (Docker log driver → Loki)
+#    sonarqube     → static code analysis & quality gate
+#    sonar-db      → dedicated Postgres for SonarQube persistence
+#    zipkin        → distributed tracing (integrates with Spring Boot sleuth)
+#
+#  Network:
+#    monitoring-net   → internal monitoring network
+#    careerbridge-net → attached as external so Prometheus can scrape core
+#                       services. Core stack must be running for scraping to work.
+#                       Monitoring stack starts independently even if core is down.
+#
+#  Ports summary:
+#    9090  → Prometheus
+#    3001  → Grafana          (3000 is taken by frontend)
+#    3100  → Loki
+#    9000  → SonarQube
+#    9411  → Zipkin
+# =============================================================================
+
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # ── Prometheus ──────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: careerbridge-prometheus
+    restart: unless-stopped
+    networks:
+      - monitoring-net
+      - careerbridge-net        # join core network to scrape actuator endpoints
+    logging: *logging
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--storage.tsdb.retention.size=2GB"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    ports:
+      - "9090:9090"
+    mem_limit: 512m
+    mem_reservation: 200m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Grafana ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: careerbridge-grafana
+    restart: unless-stopped
+    networks:
+      - monitoring-net
+    logging: *logging
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin123}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-piechart-panel,grafana-clock-panel
+      GF_SERVER_ROOT_URL: http://localhost:3001
+      # Anonymous access for dev convenience (disable in prod)
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    mem_limit: 256m
+    mem_reservation: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Loki ────────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.8
+    container_name: careerbridge-loki
+    restart: unless-stopped
+    networks:
+      - monitoring-net
+    logging: *logging
+    volumes:
+      - ./monitoring/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    mem_limit: 256m
+    mem_reservation: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Promtail (log shipper: Docker → Loki) ───────────────────────────────────
+  promtail:
+    image: grafana/promtail:2.9.8
+    container_name: careerbridge-promtail
+    restart: unless-stopped
+    networks:
+      - monitoring-net
+    logging: *logging
+    depends_on:
+      loki:
+        condition: service_healthy
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./monitoring/loki/promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    mem_limit: 128m
+    mem_reservation: 64m
+
+  # ── SonarQube DB (Postgres) ──────────────────────────────────────────────────
+  sonar-db:
+    image: postgres:15-alpine
+    container_name: careerbridge-sonar-db
+    restart: unless-stopped
+    networks:
+      - monitoring-net
+    logging: *logging
+    environment:
+      POSTGRES_USER: ${SONAR_DB_USER:-sonar}
+      POSTGRES_PASSWORD: ${SONAR_DB_PASSWORD:-sonar_secure_pass}
+      POSTGRES_DB: ${SONAR_DB_NAME:-sonarqube}
+    volumes:
+      - sonar_db_data:/var/lib/postgresql/data
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: "0.50"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SONAR_DB_USER:-sonar} -d ${SONAR_DB_NAME:-sonarqube}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── SonarQube ────────────────────────────────────────────────────────────────
+  sonarqube:
+    image: sonarqube:10.5-community
+    container_name: careerbridge-sonarqube
+    restart: unless-stopped
+    networks:
+      - monitoring-net
+    logging: *logging
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/${SONAR_DB_NAME:-sonarqube}
+      SONAR_JDBC_USERNAME: ${SONAR_DB_USER:-sonar}
+      SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD:-sonar_secure_pass}
+      # JVM memory tuning – optimised for 2 GB container limit
+      SONAR_WEB_JAVAOPTS: >-
+        -Xmx512m
+        -Xms128m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+ExitOnOutOfMemoryError
+      SONAR_CE_JAVAOPTS: >-
+        -Xmx512m
+        -Xms64m
+        -XX:+UseG1GC
+        -XX:+ExitOnOutOfMemoryError
+      SONAR_SEARCH_JAVAOPTS: >-
+        -Xmx512m
+        -Xms512m
+        -XX:+UseG1GC
+        -XX:+ExitOnOutOfMemoryError
+      # Embedded Elasticsearch tuning
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+      # SonarQube security
+      SONAR_FORCEAUTHENTICATION: "false"   # allow anonymous scan in dev
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_logs:/opt/sonarqube/logs
+      - sonar_extensions:/opt/sonarqube/extensions
+    ports:
+      - "9000:9000"
+    mem_limit: 2g
+    mem_reservation: 1g
+    cpus: "1.00"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ── Zipkin (Distributed Tracing) ─────────────────────────────────────────────
+  zipkin:
+    image: openzipkin/zipkin:3.3
+    container_name: careerbridge-zipkin
+    restart: unless-stopped
+    networks:
+      - monitoring-net
+      - careerbridge-net        # core services POST spans to zipkin:9411
+    logging: *logging
+    environment:
+      # In-memory storage is fine for dev; swap to Elasticsearch for prod
+      STORAGE_TYPE: mem
+      MEM_MAX_SPANS: 500000
+      JAVA_OPTS: >-
+        -Xmx256m
+        -Xms64m
+        -XX:+UseG1GC
+        -XX:+ExitOnOutOfMemoryError
+    ports:
+      - "9411:9411"
+    mem_limit: 512m
+    mem_reservation: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9411/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  prometheus_data:
+    name: careerbridge-prometheus-data
+  grafana_data:
+    name: careerbridge-grafana-data
+  loki_data:
+    name: careerbridge-loki-data
+  sonar_db_data:
+    name: careerbridge-sonar-db-data
+  sonar_data:
+    name: careerbridge-sonar-data
+  sonar_logs:
+    name: careerbridge-sonar-logs
+  sonar_extensions:
+    name: careerbridge-sonar-extensions
+
+networks:
+  monitoring-net:
+    driver: bridge
+    name: careerbridge-monitoring-net
+
+  # Attach to core network as external so Prometheus/Zipkin can reach services.
+  # The core network is created by docker-compose.core.yml.
+  # If core stack is not running, monitoring still starts — scrape targets will
+  # simply show as DOWN in Prometheus until core is launched.
+  careerbridge-net:
+    external: true
+    name: careerbridge-network

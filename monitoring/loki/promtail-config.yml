@@ -1,0 +1,81 @@
+# =============================================================================
+#  Promtail Configuration – TalentBridge
+#  Ships Docker container logs → Loki.
+#  Adds labels: container_name, service, log_stream.
+# =============================================================================
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 1048576
+    timeout: 10s
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  # ── Docker container log files ─────────────────────────────────────────────
+  - job_name: docker-containers
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          __path__: /var/lib/docker/containers/*/*-json.log
+
+    pipeline_stages:
+      # Parse the Docker JSON log format
+      - json:
+          expressions:
+            output: log
+            stream: stream
+            attrs:
+      - json:
+          source: attrs
+          expressions:
+            tag:
+      - regex:
+          source: tag
+          expression: '(?P<container_name>(?:[^|]*[^|]))'
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+      - labels:
+          stream:
+          container_name:
+      - output:
+          source: output
+
+  # ── TalentBridge service label enrichment ──────────────────────────────────
+  - job_name: talentbridge-services
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+        filters:
+          - name: label
+            values: ["com.docker.compose.project"]
+    relabel_configs:
+      # Use Docker container name as the service label
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: "container"
+      # Use Docker compose service name
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: "service"
+      # Log stream (stdout/stderr)
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: "logstream"
+      # Only collect from talentbridge-prefixed containers
+      - source_labels: ["container"]
+        regex: "talentbridge-.*"
+        action: keep
+    pipeline_stages:
+      - docker: {}

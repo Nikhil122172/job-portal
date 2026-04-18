@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: file-service
+  config:
+    import: "optional:configserver:"
+  cloud:
+    config:
+      enabled: false
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+cloudinary:
+  cloud-name: test
+  api-key: test
+  api-secret: test

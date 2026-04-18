@@ -1,0 +1,54 @@
+{
+  "uid": "talentbridge-tracing",
+  "title": "TalentBridge – Distributed Tracing (Zipkin)",
+  "tags": ["talentbridge", "tracing", "zipkin"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Trace Ingestion Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(zipkin_collector_spans_total[1m])",
+          "legendFormat": "Spans/s ({{transport}})"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 2,
+      "title": "Spans Dropped",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(zipkin_collector_spans_dropped_total[1m])",
+          "legendFormat": "Dropped/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "red", "mode": "fixed" }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Explore Traces",
+      "type": "text",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "### 🔍 View Traces\nOpen the [Zipkin UI](http://localhost:9411) to search and explore distributed traces across TalentBridge microservices.\n\nMake sure `TRACING_ENABLED=true` and `TRACING_SAMPLING_PROBABILITY=1.0` are set in your `.env` before restarting the core stack."
+      }
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: application-service
+  config:
+    import: "optional:configserver:"
+  cloud:
+    config:
+      enabled: false
+  datasource:
+    url: jdbc:h2:mem:application;DB_CLOSE_DELAY=-1;MODE=MySQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  kafka:
+    bootstrap-servers: localhost:9092
+
+eureka:
+  client:
+    enabled: false
+    register-with-eureka: false
+    fetch-registry: false
+
+jwt:
+  secret: test-application-service-secret-key-64bytes-paddingaaaaaa
+  expiration: 3600000
+  refresh-expiration: 7200000
+
+cloudinary:
+  cloud-name: test
+  api-key: test
+  api-secret: test
+
+app:
+  kafka:
+    topics:
+      application-events: application-events

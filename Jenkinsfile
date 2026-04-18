@@ -1,0 +1,171 @@
+def runCommand(String unixCommand, String windowsCommand = null) {
+    if (isUnix()) {
+        sh unixCommand
+    } else {
+        bat(windowsCommand ?: unixCommand)
+    }
+}
+
+def dockerImagesForProfile(String profile) {
+    def coreImages = [
+        'careerbridge/eureka-server:latest',
+        'careerbridge/config-server:latest',
+        'careerbridge/api-gateway:latest',
+        'careerbridge/auth-service:latest',
+        'careerbridge/job-service:latest',
+        'careerbridge/application-service:latest',
+        'careerbridge/file-service:latest',
+        'careerbridge/frontend:latest'
+    ]
+
+    if (profile == 'full') {
+        coreImages.add('careerbridge/notification-service:latest')
+        coreImages.add('careerbridge/admin-service:latest')
+    }
+
+    return coreImages
+}
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    parameters {
+        booleanParam(name: 'RUN_FRONTEND_TESTS', defaultValue: true, description: 'Run frontend lint, tests, and build steps')
+        booleanParam(name: 'BUILD_DOCKER_IMAGES', defaultValue: true, description: 'Build Docker images with docker-compose.core.yml')
+        booleanParam(name: 'PUSH_DOCKER_IMAGES', defaultValue: false, description: 'Push built Docker images to registry')
+        choice(name: 'DEPLOY_PROFILE', choices: ['none', 'core', 'full'], description: 'Deploy stack after CI/CD stages')
+        string(name: 'DOCKER_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins Username/Password credentials ID for Docker registry (required only when pushing images)')
+    }
+
+    environment {
+        COMPOSE_FILE = 'docker-compose.core.yml'
+        MAVEN_CLI_OPTS = '-B -ntp'
+        CI = 'true'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate Toolchain') {
+            steps {
+                script {
+                    runCommand('java -version')
+                    runCommand('mvn -version')
+                    runCommand('node -v')
+                    runCommand('npm -v')
+                }
+            }
+        }
+
+        stage('Backend Tests') {
+            steps {
+                dir('backend') {
+                    script {
+                        runCommand("mvn ${env.MAVEN_CLI_OPTS} clean test")
+                    }
+                }
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'backend/**/target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Frontend CI') {
+            when {
+                expression { return params.RUN_FRONTEND_TESTS }
+            }
+            steps {
+                dir('frontend') {
+                    script {
+                        runCommand('npm ci')
+                        runCommand('npm run lint')
+                        runCommand('npm run test -- --run')
+                        runCommand('npm run build')
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            when {
+                expression { return params.BUILD_DOCKER_IMAGES }
+            }
+            steps {
+                script {
+                    if (params.DEPLOY_PROFILE == 'full') {
+                        runCommand("docker compose -f ${env.COMPOSE_FILE} --profile full build --parallel")
+                    } else {
+                        runCommand("docker compose -f ${env.COMPOSE_FILE} build --parallel")
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Images') {
+            when {
+                allOf {
+                    expression { return params.BUILD_DOCKER_IMAGES }
+                    expression { return params.PUSH_DOCKER_IMAGES }
+                }
+            }
+            steps {
+                script {
+                    if (!params.DOCKER_CREDENTIALS_ID?.trim()) {
+                        error('DOCKER_CREDENTIALS_ID is required when PUSH_DOCKER_IMAGES=true')
+                    }
+
+                    def images = dockerImagesForProfile(params.DEPLOY_PROFILE == 'full' ? 'full' : 'core')
+
+                    withCredentials([usernamePassword(credentialsId: params.DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        runCommand('echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin', 'echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin')
+
+                        images.each { image ->
+                            runCommand("docker push ${image}")
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy') {
+            when {
+                expression { return params.DEPLOY_PROFILE != 'none' }
+            }
+            steps {
+                script {
+                    if (params.DEPLOY_PROFILE == 'full') {
+                        runCommand("docker compose -f ${env.COMPOSE_FILE} --profile full up -d --remove-orphans")
+                    } else {
+                        runCommand("docker compose -f ${env.COMPOSE_FILE} up -d --remove-orphans")
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline completed successfully.'
+        }
+        failure {
+            echo 'Pipeline failed. Check the stage logs and test reports.'
+        }
+        always {
+            script {
+                runCommand('docker logout || true', 'docker logout')
+            }
+        }
+    }
+}

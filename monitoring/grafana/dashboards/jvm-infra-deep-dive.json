@@ -1,0 +1,192 @@
+{
+  "uid": "talentbridge-jvm-infra",
+  "title": "TalentBridge – JVM & Infrastructure Deep-Dive",
+  "tags": ["talentbridge", "jvm", "infrastructure"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(jvm_memory_used_bytes, service)",
+        "multi": false,
+        "includeAll": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "JVM Heap Used vs Committed vs Max",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{service=\"$service\", area=\"heap\"} / 1024 / 1024",
+          "legendFormat": "Used ({{id}})"
+        },
+        {
+          "expr": "jvm_memory_committed_bytes{service=\"$service\", area=\"heap\"} / 1024 / 1024",
+          "legendFormat": "Committed ({{id}})"
+        },
+        {
+          "expr": "jvm_memory_max_bytes{service=\"$service\", area=\"heap\"} / 1024 / 1024",
+          "legendFormat": "Max ({{id}})"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "MB" } }
+    },
+    {
+      "id": 2,
+      "title": "Non-Heap Memory (Metaspace + Code Cache)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{service=\"$service\", area=\"nonheap\"} / 1024 / 1024",
+          "legendFormat": "Used NonHeap ({{id}})"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "MB" } }
+    },
+    {
+      "id": 3,
+      "title": "GC Pause Duration (avg over 1m)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum{service=\"$service\"}[1m]) / rate(jvm_gc_pause_seconds_count{service=\"$service\"}[1m])",
+          "legendFormat": "{{action}} {{cause}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 4,
+      "title": "GC Collections per Minute",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_count{service=\"$service\"}[1m]) * 60",
+          "legendFormat": "{{action}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 5,
+      "title": "JVM Thread States",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "jvm_threads_states_threads{service=\"$service\"}",
+          "legendFormat": "{{state}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "HTTP Request Duration Heatmap",
+      "type": "heatmap",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_bucket{service=\"$service\"}[1m])) by (le)",
+          "legendFormat": "{{le}}",
+          "format": "heatmap"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "DB Connection Pool",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active{service=\"$service\"}",
+          "legendFormat": "Active"
+        },
+        {
+          "expr": "hikaricp_connections_idle{service=\"$service\"}",
+          "legendFormat": "Idle"
+        },
+        {
+          "expr": "hikaricp_connections_pending{service=\"$service\"}",
+          "legendFormat": "Pending"
+        },
+        {
+          "expr": "hikaricp_connections_max{service=\"$service\"}",
+          "legendFormat": "Max Pool"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Class Loading",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "jvm_classes_loaded_classes{service=\"$service\"}",
+          "legendFormat": "Loaded"
+        },
+        {
+          "expr": "jvm_classes_unloaded_classes_total{service=\"$service\"}",
+          "legendFormat": "Unloaded (total)"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 24, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "process_cpu_usage{service=\"$service\"} * 100",
+          "legendFormat": "Process CPU %"
+        },
+        {
+          "expr": "system_cpu_usage{service=\"$service\"} * 100",
+          "legendFormat": "System CPU %"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    },
+    {
+      "id": 10,
+      "title": "Uptime",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 24, "w": 8, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "process_uptime_seconds{service=\"$service\"}",
+          "legendFormat": "Uptime"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    }
+  ]
+}

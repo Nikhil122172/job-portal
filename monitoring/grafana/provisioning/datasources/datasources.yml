@@ -1,0 +1,41 @@
+# =============================================================================
+#  Grafana – Datasource Provisioning
+#  Auto-provisions Prometheus and Loki on first startup.
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: zipkin
+    uid: prometheus
+    editable: true
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: zipkin
+          matcherRegex: '"traceId":"(\w+)"'
+          name: TraceID
+          url: '$${__value.raw}'
+    uid: loki
+    editable: true
+
+  - name: Zipkin
+    type: zipkin
+    access: proxy
+    url: http://zipkin:9411
+    uid: zipkin
+    editable: true

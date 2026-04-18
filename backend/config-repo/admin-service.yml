@@ -1,0 +1,19 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: admin-service
+
+feign:
+  circuitbreaker:
+    enabled: true
+
+management:
+  prometheus:
+    metrics:
+      export:
+        openmetrics:
+          enabled: false
+        exemplars:
+          enabled: false

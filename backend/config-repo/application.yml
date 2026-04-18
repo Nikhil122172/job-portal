@@ -1,0 +1,71 @@
+# Shared configuration for all services
+spring:
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+  # Redis connection shared across auth-service, api-gateway, and job-service.
+  # Services that don't have spring-boot-starter-data-redis in their pom.xml
+  # (admin, application, file, notification) simply ignore these settings.
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+  # NOTE: spring.cache.type=redis is intentionally NOT set here globally.
+  # Only job-service needs Redis caching; setting it globally causes services
+  # without the Redis dependency to fail with NoSuchBeanDefinitionException.
+  # job-service sets spring.cache.type=redis in its own local application.yml.
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000
+  refresh-expiration: 604800000
+
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME}
+  api-key: ${CLOUDINARY_API_KEY}
+  api-secret: ${CLOUDINARY_API_SECRET}
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.jobportal: INFO
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env,loggers,threaddump,heapdump
+  endpoint:
+    health:
+      show-details: always
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  health:
+    mail:
+      enabled: false
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:0.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://zipkin:9411/api/v2/spans}

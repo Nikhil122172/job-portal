@@ -1,0 +1,32 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  codec:
+    max-in-memory-size: 20MB
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      # NOTE: RequestRateLimiter is intentionally removed from default-filters.
+      # Applying it globally blocks CORS preflight OPTIONS requests (which have no
+      # IP body to key on) and hammers public endpoints like /api/v1/auth/** with
+      # rate limit failures for normal users. Route-level rate limiting should be
+      # applied selectively to write endpoints if needed.
+
+management:
+  prometheus:
+    metrics:
+      export:
+        openmetrics:
+          enabled: false
+        exemplars:
+          enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway,metrics,prometheus
