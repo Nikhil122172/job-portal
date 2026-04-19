@@ -21,6 +21,8 @@ Install these tools on the Jenkins agent:
 - Node.js 20+ and npm
 - Docker + Docker Compose v2
 
+The pipeline uses `agent any`, so Jenkins may schedule it on any available worker. Make sure that worker already has the required tools installed, or restrict the job to a labeled node that does.
+
 Recommended Jenkins plugins:
 
 - Pipeline
@@ -73,3 +75,4 @@ For GitHub:
 - Backend test reports are published from `backend/**/target/surefire-reports/*.xml`.
 - Frontend tests use `vitest` in non-watch mode.
 - If your registry namespace differs from `careerbridge/*`, update image names in `Jenkinsfile`.
+- If the pipeline stops at `Validate Toolchain` with a missing `mvn` or `docker` error, the Jenkins agent itself is missing the tool. Install it on that node or run the job on a different labeled worker.

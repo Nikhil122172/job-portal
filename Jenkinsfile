@@ -6,6 +6,20 @@ def runCommand(String unixCommand, String windowsCommand = null) {
     }
 }
 
+def commandExists(String commandName) {
+    if (isUnix()) {
+        return sh(script: "command -v ${commandName} >/dev/null 2>&1", returnStatus: true) == 0
+    }
+
+    return bat(script: "@where ${commandName} >NUL 2>&1", returnStatus: true) == 0
+}
+
+def requireCommand(String commandName, String installHint) {
+    if (!commandExists(commandName)) {
+        error("${commandName} is not available on this Jenkins agent. ${installHint}")
+    }
+}
+
 def dockerImagesForProfile(String profile) {
     def coreImages = [
         'careerbridge/eureka-server:latest',
@@ -59,10 +73,23 @@ pipeline {
         stage('Validate Toolchain') {
             steps {
                 script {
+                    requireCommand('java', 'Install JDK 17+ on the agent or run this job on a node that already has it.')
+                    requireCommand('mvn', 'Install Maven 3.9+ on the agent, or configure the job to use a node image that includes Maven.')
+                    requireCommand('node', 'Install Node.js 20+ on the agent if frontend CI is enabled.')
+                    requireCommand('npm', 'Install npm together with Node.js on the agent if frontend CI is enabled.')
+
+                    if (params.BUILD_DOCKER_IMAGES || params.PUSH_DOCKER_IMAGES || params.DEPLOY_PROFILE != 'none') {
+                        requireCommand('docker', 'Install Docker and Docker Compose v2 on the agent, or disable build/push/deploy parameters for this job.')
+                    }
+
                     runCommand('java -version')
                     runCommand('mvn -version')
                     runCommand('node -v')
                     runCommand('npm -v')
+
+                    if (commandExists('docker')) {
+                        runCommand('docker version')
+                    }
                 }
             }
         }
@@ -164,7 +191,9 @@ pipeline {
         }
         always {
             script {
-                runCommand('docker logout || true', 'docker logout')
+                if (commandExists('docker')) {
+                    runCommand('docker logout || true', 'docker logout')
+                }
             }
         }
     }
