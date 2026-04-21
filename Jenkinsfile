@@ -1,5 +1,5 @@
 pipeline {
-    agent none   // ❗ Important change
+    agent none
 
     options {
         timestamps()
@@ -8,8 +8,8 @@ pipeline {
     }
 
     parameters {
-        booleanParam(name: 'RUN_FRONTEND_TESTS', defaultValue: true, description: 'Run frontend lint, tests, and build steps')
-        booleanParam(name: 'BUILD_DOCKER_IMAGES', defaultValue: true, description: 'Build Docker images')
+        booleanParam(name: 'RUN_FRONTEND_TESTS', defaultValue: true, description: 'Run frontend CI')
+        booleanParam(name: 'BUILD_DOCKER_IMAGES', defaultValue: false, description: 'Build Docker images')
         booleanParam(name: 'PUSH_DOCKER_IMAGES', defaultValue: false, description: 'Push Docker images')
         choice(name: 'DEPLOY_PROFILE', choices: ['none', 'core', 'full'], description: 'Deploy stack')
         string(name: 'DOCKER_CREDENTIALS_ID', defaultValue: '', description: 'Docker credentials ID')
@@ -21,7 +21,7 @@ pipeline {
 
     stages {
 
-        // ✅ Checkout (normal agent)
+        // ✅ Checkout
         stage('Checkout') {
             agent any
             steps {
@@ -29,14 +29,12 @@ pipeline {
             }
         }
 
-        // ❌ REMOVE Validate Toolchain (important)
-
-        // ✅ Backend (Maven container)
+        // ✅ Backend Tests (Maven container)
         stage('Backend Tests') {
             agent {
                 docker {
                     image 'maven:3.9-eclipse-temurin-17'
-                    args '-v /root/.m2:/root/.m2' // cache deps
+                    args '-v /root/.m2:/root/.m2'
                 }
             }
             steps {
@@ -51,7 +49,7 @@ pipeline {
             }
         }
 
-        // ✅ Frontend (Node container)
+        // ✅ Frontend CI (Node container)
         stage('Frontend CI') {
             when {
                 expression { return params.RUN_FRONTEND_TESTS }
@@ -71,7 +69,7 @@ pipeline {
             }
         }
 
-        // ✅ Docker Build (host docker)
+        // ✅ Docker Build
         stage('Build Docker Images') {
             when {
                 expression { return params.BUILD_DOCKER_IMAGES }
@@ -82,7 +80,7 @@ pipeline {
             }
         }
 
-        // ✅ Push Images
+        // ✅ Push Docker Images
         stage('Push Docker Images') {
             when {
                 allOf {
@@ -103,7 +101,7 @@ pipeline {
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
                         sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
-                        sh 'docker compose push'
+                        sh "docker compose -f ${env.COMPOSE_FILE} push"
                     }
                 }
             }
@@ -129,7 +127,9 @@ pipeline {
             echo 'Pipeline failed.'
         }
         always {
-            sh 'docker logout || true'
+            node {
+                sh 'docker logout || true'
+            }
         }
     }
 }
