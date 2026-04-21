@@ -25,6 +25,7 @@ pipeline {
         stage('Checkout') {
             agent any
             steps {
+                deleteDir()
                 checkout scm
             }
         }
