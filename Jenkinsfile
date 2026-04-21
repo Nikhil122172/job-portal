@@ -127,10 +127,5 @@ pipeline {
         failure {
             echo 'Pipeline failed.'
         }
-        always {
-            node {
-                sh 'docker logout || true'
-            }
-        }
     }
 }
