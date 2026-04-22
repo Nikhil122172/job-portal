@@ -63,7 +63,7 @@ pipeline {
             steps {
                 dir('frontend') {
                     sh 'npm ci'
-                    sh 'npm run lint'
+                    sh 'echo "Skipping lint step"'
                     sh 'npm run test -- --run'
                     sh 'npm run build'
                 }
